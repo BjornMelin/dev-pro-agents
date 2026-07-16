@@ -2,13 +2,15 @@
 
 ## Canonical flow
 
-1. `TaskBrief` rejects unknown or incomplete input.
+1. `TaskBrief` rejects unknown or incomplete input, including newline-bearing values that must
+   remain single-line.
 2. A LangChain v1 coordinator calls the implementation planner role.
 3. The coordinator passes the canonical brief and that draft to the verification reviewer role.
 4. `ToolStrategy` validates the final response as `ImplementationHandoff` and returns correctable
    schema errors to the model for retry.
 5. The CLI's native SQLite serializer explicitly allowlists that handoff type for safe resume.
-6. The caller selects deterministic Markdown or JSON rendering.
+6. The caller selects deterministic Markdown or JSON rendering. Output contracts reject newlines in
+   headings, summary and outcome prose, and bullet values so content cannot alter Markdown structure.
 
 The role handoffs are ordinary LangChain tools that accept and return text. They have no filesystem,
 process, browser, scraper, database, or deployment capability. Only the coordinator receives the

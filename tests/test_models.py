@@ -27,6 +27,56 @@ def test_task_brief_rejects_blank_acceptance_criteria() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("task_title", "Task\n# Injected heading"),
+        ("summary", "Summary\n- Injected item"),
+        ("assumptions", ("Assumption\n- Injected item",)),
+    ],
+)
+def test_handoff_rejects_multiline_top_level_values(field: str, value: object) -> None:
+    payload: dict[str, object] = {
+        "task_title": "Task",
+        "summary": "Summary",
+        "assumptions": (),
+        "steps": (
+            {
+                "title": "Implement",
+                "outcome": "Implemented",
+                "verification": ("uv run pytest",),
+            },
+        ),
+        "done_criteria": ("Done",),
+    }
+    payload[field] = value
+
+    with pytest.raises(ValidationError):
+        ImplementationHandoff.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("title", "Implement\n## Injected heading"),
+        ("outcome", "Implemented\n- Injected item"),
+        ("files", ("src/file.py\n- Injected item",)),
+        ("verification", ("uv run pytest\n- Injected item",)),
+    ],
+)
+def test_step_rejects_multiline_values(field: str, value: object) -> None:
+    payload: dict[str, object] = {
+        "title": "Implement",
+        "outcome": "Implemented",
+        "files": (),
+        "verification": ("uv run pytest",),
+    }
+    payload[field] = value
+
+    with pytest.raises(ValidationError):
+        ImplementationStep.model_validate(payload)
+
+
 def test_markdown_is_stable_and_complete() -> None:
     handoff = ImplementationHandoff(
         task_title="Health endpoint",

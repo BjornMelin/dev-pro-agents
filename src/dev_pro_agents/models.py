@@ -6,7 +6,10 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
-NonEmptyText = Annotated[str, Field(min_length=1)]
+SingleLineText = Annotated[
+    str,
+    Field(min_length=1, pattern=r"^[^\r\n]+$"),
+]
 
 
 class ContractModel(BaseModel):
@@ -18,32 +21,32 @@ class ContractModel(BaseModel):
 class TaskBrief(ContractModel):
     """A repository-scoped engineering task and its completion contract."""
 
-    title: str = Field(min_length=1, max_length=120)
+    title: SingleLineText = Field(max_length=120)
     objective: str = Field(min_length=1)
     repository_context: str = ""
-    constraints: tuple[NonEmptyText, ...] = ()
-    acceptance_criteria: tuple[NonEmptyText, ...] = Field(min_length=1)
+    constraints: tuple[SingleLineText, ...] = ()
+    acceptance_criteria: tuple[SingleLineText, ...] = Field(min_length=1)
 
 
 class ImplementationStep(ContractModel):
     """One independently verifiable step in an implementation handoff."""
 
-    title: str = Field(min_length=1, max_length=120)
-    outcome: str = Field(min_length=1)
-    files: tuple[NonEmptyText, ...] = ()
-    verification: tuple[NonEmptyText, ...] = Field(min_length=1)
+    title: SingleLineText = Field(max_length=120)
+    outcome: SingleLineText
+    files: tuple[SingleLineText, ...] = ()
+    verification: tuple[SingleLineText, ...] = Field(min_length=1)
 
 
 class ImplementationHandoff(ContractModel):
     """A validated, execution-ready implementation plan."""
 
-    task_title: str = Field(min_length=1, max_length=120)
-    summary: str = Field(min_length=1)
-    assumptions: tuple[NonEmptyText, ...] = ()
+    task_title: SingleLineText = Field(max_length=120)
+    summary: SingleLineText
+    assumptions: tuple[SingleLineText, ...] = ()
     steps: tuple[ImplementationStep, ...] = Field(min_length=1)
-    risks: tuple[NonEmptyText, ...] = ()
-    manual_tasks: tuple[NonEmptyText, ...] = ()
-    done_criteria: tuple[NonEmptyText, ...] = Field(min_length=1)
+    risks: tuple[SingleLineText, ...] = ()
+    manual_tasks: tuple[SingleLineText, ...] = ()
+    done_criteria: tuple[SingleLineText, ...] = Field(min_length=1)
 
     def to_markdown(self) -> str:
         """Render a stable Markdown representation of the handoff."""
