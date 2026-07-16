@@ -51,9 +51,6 @@ def _default_state_path() -> Path:
     return state_root / "dev-pro-agents" / "checkpoints.sqlite"
 
 
-DEFAULT_STATE_PATH = _default_state_path()
-
-
 @app.callback()
 def root() -> None:
     """Generate implementation handoffs without executing repository changes."""
@@ -65,6 +62,10 @@ def plan(  # noqa: PLR0913
         Path,
         typer.Argument(help="TaskBrief JSON file, or '-' to read stdin."),
     ],
+    state_path: Annotated[
+        Path,
+        typer.Option(default_factory=_default_state_path, help="SQLite checkpoint file."),
+    ],
     output_format: Annotated[
         OutputFormat,
         typer.Option("--format", help="Output serialization."),
@@ -73,10 +74,6 @@ def plan(  # noqa: PLR0913
         str,
         typer.Option(envvar="DEV_PRO_AGENTS_MODEL", help="LangChain provider:model identifier."),
     ] = "openai:gpt-5-mini",
-    state_path: Annotated[
-        Path,
-        typer.Option(help="SQLite checkpoint file."),
-    ] = DEFAULT_STATE_PATH,
     thread_id: Annotated[
         str | None,
         typer.Option(help="Checkpoint thread; defaults to a fresh isolated thread."),
@@ -102,11 +99,8 @@ def plan(  # noqa: PLR0913
     if provider == "openai" and not os.environ.get("OPENAI_API_KEY"):
         _exit("OPENAI_API_KEY is required for OpenAI models", EXIT_CONFIGURATION)
 
+    _prepare_state_path(state_path)
     try:
-        state_path.parent.mkdir(mode=STATE_DIRECTORY_MODE, parents=True, exist_ok=True)
-        state_path.touch(mode=STATE_FILE_MODE, exist_ok=True)
-        if os.name == "posix":
-            state_path.chmod(STATE_FILE_MODE)
         with closing(sqlite3.connect(str(state_path), check_same_thread=False)) as connection:
             checkpointer = SqliteSaver(
                 connection,
@@ -123,6 +117,16 @@ def plan(  # noqa: PLR0913
         else handoff.to_markdown()
     )
     _write_output(output, rendered)
+
+
+def _prepare_state_path(state_path: Path) -> None:
+    try:
+        state_path.parent.mkdir(mode=STATE_DIRECTORY_MODE, parents=True, exist_ok=True)
+        state_path.touch(mode=STATE_FILE_MODE, exist_ok=True)
+        if os.name == "posix":
+            state_path.chmod(STATE_FILE_MODE)
+    except OSError as error:
+        _exit(f"could not prepare checkpoint: {error}", EXIT_CONFIGURATION)
 
 
 def _validate_output_path(state_path: Path, output: Path | None) -> None:

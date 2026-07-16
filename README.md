@@ -41,7 +41,8 @@ cat brief.json | uv run dev-pro-agents plan - --thread-id health-endpoint
 Checkpoint state defaults to `$XDG_STATE_HOME/dev-pro-agents/checkpoints.sqlite`, falling back to
 `~/.local/state/dev-pro-agents/checkpoints.sqlite`. Each run gets a fresh isolated thread by default;
 pass `--thread-id` to continue a deliberate thread. Exit codes are stable: `0` success, `2` invalid
-input or CLI usage, `3` missing provider configuration, `4` workflow failure, and `5` output failure.
+input or CLI usage, `3` provider or checkpoint configuration, `4` workflow failure, and `5` output
+failure.
 The checkpoint database contains task briefs and model messages. The CLI creates it with private
 file permissions on POSIX systems; still treat it as sensitive local data and remove it when stale.
 For safety, `--output` must not name or alias the checkpoint file.

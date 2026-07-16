@@ -87,6 +87,47 @@ def test_relative_xdg_state_home_is_ignored(monkeypatch: pytest.MonkeyPatch) -> 
     assert _default_state_path() == Path.home() / ".local/state/dev-pro-agents/checkpoints.sqlite"
 
 
+def test_default_state_path_is_resolved_per_invocation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    brief_path = _write_brief(tmp_path, _valid_brief())
+    state_root = tmp_path / "state"
+    provider_error = "provider unavailable"
+
+    def fail_build_workflow(model: object, *, checkpointer: object) -> Never:
+        del model, checkpointer
+        raise ProviderFailureError(provider_error)
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_root))
+    monkeypatch.setattr(cli, "build_workflow", fail_build_workflow)
+    result = runner.invoke(app, ["plan", str(brief_path), "--model", "fake:model"])
+
+    assert result.exit_code == EXIT_WORKFLOW
+    assert (state_root / "dev-pro-agents/checkpoints.sqlite").exists()
+
+
+def test_checkpoint_provisioning_failure_exits_three(tmp_path: Path) -> None:
+    brief_path = _write_brief(tmp_path, _valid_brief())
+    blocked_parent = tmp_path / "not-a-directory"
+    blocked_parent.write_text("file", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "plan",
+            str(brief_path),
+            "--model",
+            "fake:model",
+            "--state-path",
+            str(blocked_parent / "state.sqlite"),
+        ],
+    )
+
+    assert result.exit_code == EXIT_CONFIGURATION
+    assert "could not prepare checkpoint" in result.stderr
+
+
 def test_workflow_failure_exits_four(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     brief_path = _write_brief(tmp_path, _valid_brief())
     provider_error = "provider unavailable"

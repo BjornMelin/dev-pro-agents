@@ -36,6 +36,7 @@ class RoleAwareFakeChatModel(BaseChatModel):
     invalid_planner_brief: bool = False
     invalid_handoff_once: bool = False
     parallel_calls: bool = False
+    rewritten_draft: bool = False
     substituted_brief: bool = False
     bound_tool_names: list[tuple[str, ...]] = Field(default_factory=list)
     bound_tool_choices: list[str | None] = Field(default_factory=list)
@@ -81,7 +82,10 @@ class RoleAwareFakeChatModel(BaseChatModel):
                     planner_call,
                     ToolCall(
                         name=REVIEWER_TOOL,
-                        args={"draft_markdown": "fabricated parallel draft"},
+                        args={
+                            "task_brief_json": role_brief_json,
+                            "draft_markdown": "fabricated parallel draft",
+                        },
                         id="reviewer-call",
                     ),
                 )
@@ -91,7 +95,9 @@ class RoleAwareFakeChatModel(BaseChatModel):
                 name=REVIEWER_TOOL,
                 args={
                     "task_brief_json": role_brief_json,
-                    "draft_markdown": tool_messages[-1].text,
+                    "draft_markdown": (
+                        "rewritten draft" if self.rewritten_draft else tool_messages[-1].text
+                    ),
                 },
                 id="reviewer-call",
             )
@@ -217,6 +223,18 @@ def test_substituted_role_brief_is_rejected() -> None:
 
     with pytest.raises(WorkflowContractError):
         run_handoff(workflow, brief, thread_id="substituted-brief")
+
+
+def test_rewritten_planner_draft_is_rejected() -> None:
+    brief = TaskBrief(
+        title="Health endpoint",
+        objective="Expose readiness.",
+        acceptance_criteria=("GET /health returns 200.",),
+    )
+    workflow = build_workflow(RoleAwareFakeChatModel(rewritten_draft=True))
+
+    with pytest.raises(WorkflowContractError):
+        run_handoff(workflow, brief, thread_id="rewritten-draft")
 
 
 def test_mismatched_handoff_title_is_rejected() -> None:
