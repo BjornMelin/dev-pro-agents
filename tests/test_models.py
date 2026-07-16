@@ -32,6 +32,11 @@ def test_task_brief_rejects_blank_acceptance_criteria() -> None:
     [
         ("task_title", "Task\n# Injected heading"),
         ("summary", "Summary\n- Injected item"),
+        ("summary", "Summary\x1b[2Jspoofed terminal"),
+        ("summary", "Summary\u2028separated line"),
+        ("summary", "Summary\u2029separated paragraph"),
+        ("summary", "Summary\u202espoofed direction"),
+        ("summary", "Summary\u2066isolated direction"),
         ("assumptions", ("Assumption\n- Injected item",)),
     ],
 )

@@ -4,11 +4,21 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+
+NON_PRINTABLE_ERROR = "must contain only printable characters"
+
+
+def _require_printable(value: str) -> str:
+    if not value.isprintable():
+        raise ValueError(NON_PRINTABLE_ERROR)
+    return value
+
 
 SingleLineText = Annotated[
     str,
-    Field(min_length=1, pattern=r"^[^\r\n]+$"),
+    Field(min_length=1, pattern=r"^[^\x00-\x1f\x7f-\x9f]+$"),
+    AfterValidator(_require_printable),
 ]
 
 

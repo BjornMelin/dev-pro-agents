@@ -45,7 +45,8 @@ input or CLI usage, `3` provider or checkpoint configuration, `4` workflow failu
 failure.
 The checkpoint database contains task briefs and model messages. The CLI creates it with private
 file permissions on POSIX systems; still treat it as sensitive local data and remove it when stale.
-For safety, `--output` must not name or alias the checkpoint file.
+For safety, `--output` must not name or alias the checkpoint file. Case-only path differences are
+also rejected so the same command remains safe on case-insensitive filesystems.
 
 ## Library
 

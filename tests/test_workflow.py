@@ -32,6 +32,7 @@ class RoleAwareFakeChatModel(BaseChatModel):
     """Deterministic model that implements the exact tool protocol used by the workflow."""
 
     early_handoff: bool = False
+    duplicate_handoff_once: bool = False
     handoff_title: str = "Health endpoint"
     invalid_planner_brief: bool = False
     invalid_handoff_once: bool = False
@@ -114,6 +115,12 @@ class RoleAwareFakeChatModel(BaseChatModel):
                     id="invalid-handoff-call",
                 )
             )
+        if self.duplicate_handoff_once and HANDOFF_TOOL not in called_tools:
+            first_handoff = _handoff_call(self.handoff_title)
+            first_handoff["id"] = "first-duplicate-handoff"
+            second_handoff = _handoff_call(self.handoff_title)
+            second_handoff["id"] = "second-duplicate-handoff"
+            return _tool_result(first_handoff, second_handoff)
         return _tool_result(_handoff_call(self.handoff_title))
 
     @property
@@ -173,6 +180,19 @@ def test_invalid_structured_handoff_is_retried() -> None:
     workflow = build_workflow(RoleAwareFakeChatModel(invalid_handoff_once=True))
 
     handoff = run_handoff(workflow, brief, thread_id="structured-retry")
+
+    assert handoff.task_title == brief.title
+
+
+def test_multiple_structured_handoffs_are_retried() -> None:
+    brief = TaskBrief(
+        title="Health endpoint",
+        objective="Expose readiness.",
+        acceptance_criteria=("GET /health returns 200.",),
+    )
+    workflow = build_workflow(RoleAwareFakeChatModel(duplicate_handoff_once=True))
+
+    handoff = run_handoff(workflow, brief, thread_id="multiple-structured-retry")
 
     assert handoff.task_title == brief.title
 

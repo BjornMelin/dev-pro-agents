@@ -121,6 +121,8 @@ def test_checkpoint_provisioning_failure_exits_three(tmp_path: Path) -> None:
             "fake:model",
             "--state-path",
             str(blocked_parent / "state.sqlite"),
+            "--output",
+            str(tmp_path / "handoff.md"),
         ],
     )
 
@@ -204,6 +206,55 @@ def test_relative_output_alias_cannot_replace_checkpoint_file(
     assert not (tmp_path / "state.sqlite").exists()
 
 
+def test_case_only_output_alias_cannot_replace_checkpoint_file(tmp_path: Path) -> None:
+    brief_path = _write_brief(tmp_path, _valid_brief())
+    state_path = tmp_path / "state.sqlite"
+
+    result = runner.invoke(
+        app,
+        [
+            "plan",
+            str(brief_path),
+            "--model",
+            "fake:model",
+            "--state-path",
+            str(state_path),
+            "--output",
+            str(tmp_path / "STATE.sqlite"),
+        ],
+    )
+
+    assert result.exit_code == EXIT_INPUT
+    assert result.stderr == "output must not refer to the checkpoint file\n"
+    assert not state_path.exists()
+
+
+def test_symlink_loop_output_exits_two(tmp_path: Path) -> None:
+    brief_path = _write_brief(tmp_path, _valid_brief())
+    first_link = tmp_path / "first"
+    second_link = tmp_path / "second"
+    first_link.symlink_to(second_link)
+    second_link.symlink_to(first_link)
+
+    result = runner.invoke(
+        app,
+        [
+            "plan",
+            str(brief_path),
+            "--model",
+            "fake:model",
+            "--state-path",
+            str(tmp_path / "state.sqlite"),
+            "--output",
+            str(first_link),
+        ],
+    )
+
+    assert result.exit_code == EXIT_INPUT
+    assert result.stderr.startswith("invalid output path: ")
+    assert not (tmp_path / "state.sqlite").exists()
+
+
 def test_symlink_output_alias_cannot_replace_checkpoint_file(tmp_path: Path) -> None:
     brief_path = _write_brief(tmp_path, _valid_brief())
     state_path = tmp_path / "state.sqlite"
@@ -254,6 +305,42 @@ def test_hardlink_output_alias_cannot_replace_checkpoint_file(tmp_path: Path) ->
     assert result.exit_code == EXIT_INPUT
     assert result.stderr == "output must not refer to the checkpoint file\n"
     assert state_path.read_bytes() == b"checkpoint-data"
+
+
+def test_alias_comparison_failure_exits_two(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    brief_path = _write_brief(tmp_path, _valid_brief())
+    state_path = tmp_path / "state.sqlite"
+    state_path.write_bytes(b"checkpoint-data")
+    output_path = tmp_path / "handoff.md"
+    output_path.write_text("existing output", encoding="utf-8")
+    comparison_error = "comparison unavailable"
+
+    def fail_samefile(path: Path, other_path: object) -> bool:
+        del path, other_path
+        raise OSError(comparison_error)
+
+    monkeypatch.setattr(Path, "samefile", fail_samefile)
+    result = runner.invoke(
+        app,
+        [
+            "plan",
+            str(brief_path),
+            "--model",
+            "fake:model",
+            "--state-path",
+            str(state_path),
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == EXIT_INPUT
+    assert result.stderr == f"invalid output path: {comparison_error}\n"
+    assert state_path.read_bytes() == b"checkpoint-data"
+    assert output_path.read_text(encoding="utf-8") == "existing output"
 
 
 def test_output_failure_exits_five(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

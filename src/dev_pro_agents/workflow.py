@@ -187,15 +187,12 @@ def _has_causal_role_handoff(
         < reviewer_index
         < reviewer_result_index
         < handoff_attempts[0][0]
-        and _attempts_are_sequential(handoff_attempts)
-        and all(_validated_handoff(call["args"]) is None for _, call, _, _ in handoff_attempts[:-1])
-        and _validated_handoff(handoff_attempts[-1][1]["args"]) == handoff
+        and _valid_handoff_retry_sequence(handoff_attempts, handoff)
         and reviewed_draft == planner_result.text
         and planned_brief == brief
         and reviewed_brief == brief
         and planner_result.status == "success"
         and reviewer_result.status == "success"
-        and handoff_attempts[-1][3].status == "success"
     )
 
 
@@ -216,15 +213,33 @@ def _handoff_attempts(
     return attempts
 
 
-def _attempts_are_sequential(
+def _valid_handoff_retry_sequence(
     attempts: list[tuple[int, ToolCall, int, ToolMessage]],
+    handoff: ImplementationHandoff,
 ) -> bool:
+    groups: list[list[tuple[int, ToolCall, int, ToolMessage]]] = []
+    for attempt in attempts:
+        if not groups or groups[-1][0][0] != attempt[0]:
+            groups.append([])
+        groups[-1].append(attempt)
+
     previous_result_index = -1
-    for call_index, _, result_index, _ in attempts:
-        if not previous_result_index < call_index < result_index:
+    for group in groups:
+        call_index = group[0][0]
+        if previous_result_index >= call_index or any(
+            result_index <= call_index or result.status != "success"
+            for _, _, result_index, result in group
+        ):
             return False
-        previous_result_index = result_index
-    return True
+        previous_result_index = max(result_index for _, _, result_index, _ in group)
+
+    if any(
+        len(group) == 1 and _validated_handoff(group[0][1]["args"]) is not None
+        for group in groups[:-1]
+    ):
+        return False
+    final_group = groups[-1]
+    return len(final_group) == 1 and _validated_handoff(final_group[0][1]["args"]) == handoff
 
 
 def _validated_brief(value: object) -> TaskBrief | None:

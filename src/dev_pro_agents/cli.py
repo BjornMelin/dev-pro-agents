@@ -133,10 +133,19 @@ def _validate_output_path(state_path: Path, output: Path | None) -> None:
     if output is None:
         return
     try:
-        if _paths_refer_to_same_file(state_path, output):
-            _exit("output must not refer to the checkpoint file", EXIT_INPUT)
+        state_resolved = _resolve_for_comparison(state_path)
+    except (OSError, RuntimeError) as error:
+        _exit(f"could not prepare checkpoint: {error}", EXIT_CONFIGURATION)
+    try:
+        output_resolved = _resolve_for_comparison(output)
+    except (OSError, RuntimeError) as error:
+        _exit(f"invalid output path: {error}", EXIT_INPUT)
+    try:
+        aliases_checkpoint = _resolved_paths_refer_to_same_file(state_resolved, output_resolved)
     except OSError as error:
         _exit(f"invalid output path: {error}", EXIT_INPUT)
+    if aliases_checkpoint:
+        _exit("output must not refer to the checkpoint file", EXIT_INPUT)
 
 
 def _write_output(output: Path | None, rendered: str) -> None:
@@ -149,16 +158,20 @@ def _write_output(output: Path | None, rendered: str) -> None:
         _exit(f"could not write output: {error}", EXIT_OUTPUT)
 
 
-def _paths_refer_to_same_file(left: Path, right: Path) -> bool:
-    left_resolved = left.expanduser().resolve(strict=False)
-    right_resolved = right.expanduser().resolve(strict=False)
-    if left_resolved == right_resolved:
+def _resolved_paths_refer_to_same_file(left: Path, right: Path) -> bool:
+    left_key = os.path.normcase(str(left)).casefold()
+    right_key = os.path.normcase(str(right)).casefold()
+    if left_key == right_key:
         return True
-    return (
-        left_resolved.exists()
-        and right_resolved.exists()
-        and left_resolved.samefile(right_resolved)
-    )
+    return left.exists() and right.exists() and left.samefile(right)
+
+
+def _resolve_for_comparison(path: Path) -> Path:
+    expanded = path.expanduser()
+    try:
+        return expanded.resolve(strict=True)
+    except FileNotFoundError:
+        return expanded.resolve(strict=False)
 
 
 def _load_brief(path: Path) -> TaskBrief:
