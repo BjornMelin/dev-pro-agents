@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import sys
+from contextlib import closing
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Never
 from uuid import uuid4
 
 import typer
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import ValidationError
 
 from dev_pro_agents.models import TaskBrief
-from dev_pro_agents.workflow import build_workflow, run_handoff
+from dev_pro_agents.workflow import HANDOFF_CHECKPOINT_TYPE, build_workflow, run_handoff
 
 EXIT_INPUT = 2
 EXIT_CONFIGURATION = 3
@@ -104,7 +107,11 @@ def plan(  # noqa: PLR0913
         state_path.touch(mode=STATE_FILE_MODE, exist_ok=True)
         if os.name == "posix":
             state_path.chmod(STATE_FILE_MODE)
-        with SqliteSaver.from_conn_string(str(state_path)) as checkpointer:
+        with closing(sqlite3.connect(str(state_path), check_same_thread=False)) as connection:
+            checkpointer = SqliteSaver(
+                connection,
+                serde=JsonPlusSerializer(allowed_msgpack_modules=[HANDOFF_CHECKPOINT_TYPE]),
+            )
             workflow = build_workflow(model, checkpointer=checkpointer)
             handoff = run_handoff(workflow, brief, thread_id=thread_id or f"run-{uuid4().hex}")
     except Exception as error:  # noqa: BLE001

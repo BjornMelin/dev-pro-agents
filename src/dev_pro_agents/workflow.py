@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 PLANNER_TOOL = "implementation_planner"
 REVIEWER_TOOL = "verification_reviewer"
 HANDOFF_TOOL = ImplementationHandoff.__name__
+HANDOFF_CHECKPOINT_TYPE = (ImplementationHandoff.__module__, ImplementationHandoff.__name__)
 BLANK_THREAD_ERROR = "thread_id must not be blank"
 
 PLANNER_PROMPT = """You are an implementation planner. Produce a concise Markdown draft that
@@ -98,7 +99,7 @@ def build_workflow(
         model=model,
         tools=(implementation_planner, verification_reviewer),
         system_prompt=COORDINATOR_PROMPT,
-        response_format=ToolStrategy(ImplementationHandoff.model_json_schema()),
+        response_format=ToolStrategy(ImplementationHandoff),
         checkpointer=checkpointer,
     )
     return cast("Workflow", graph)
@@ -113,9 +114,6 @@ def run_handoff(workflow: Workflow, brief: TaskBrief, *, thread_id: str) -> Impl
         {"configurable": {"thread_id": thread_id}},
     )
     messages = _messages(result)
-    if not _has_causal_role_handoff(messages, brief):
-        raise WorkflowContractError(WorkflowContractError.MISSING_HANDOFF)
-
     structured = result.get("structured_response")
     if isinstance(structured, ImplementationHandoff):
         handoff = structured
@@ -126,6 +124,8 @@ def run_handoff(workflow: Workflow, brief: TaskBrief, *, thread_id: str) -> Impl
             raise WorkflowContractError(WorkflowContractError.INVALID_HANDOFF) from error
     if handoff.task_title != brief.title:
         raise WorkflowContractError(WorkflowContractError.INVALID_HANDOFF)
+    if not _has_causal_role_handoff(messages, brief, handoff):
+        raise WorkflowContractError(WorkflowContractError.MISSING_HANDOFF)
     return handoff
 
 
@@ -150,31 +150,34 @@ def _current_messages(messages: Sequence[BaseMessage]) -> Sequence[BaseMessage]:
     return messages[last_input + 1 :]
 
 
-def _has_causal_role_handoff(messages: Sequence[BaseMessage], brief: TaskBrief) -> bool:
+def _has_causal_role_handoff(
+    messages: Sequence[BaseMessage],
+    brief: TaskBrief,
+    handoff: ImplementationHandoff,
+) -> bool:
     current = _current_messages(messages)
     planner_calls = _tool_calls(current, PLANNER_TOOL)
     reviewer_calls = _tool_calls(current, REVIEWER_TOOL)
     handoff_calls = _tool_calls(current, HANDOFF_TOOL)
-    if len(planner_calls) != 1 or len(reviewer_calls) != 1 or len(handoff_calls) != 1:
+    if len(planner_calls) != 1 or len(reviewer_calls) != 1 or not handoff_calls:
         return False
 
     planner_index, planner_call = planner_calls[0]
     reviewer_index, reviewer_call = reviewer_calls[0]
-    handoff_index, handoff_call = handoff_calls[0]
     planner_call_id = planner_call.get("id")
     reviewer_call_id = reviewer_call.get("id")
-    handoff_call_id = handoff_call.get("id")
-    if planner_call_id is None or reviewer_call_id is None or handoff_call_id is None:
+    if planner_call_id is None or reviewer_call_id is None:
         return False
     planner_results = _tool_results(current, PLANNER_TOOL, planner_call_id)
     reviewer_results = _tool_results(current, REVIEWER_TOOL, reviewer_call_id)
-    handoff_results = _tool_results(current, HANDOFF_TOOL, handoff_call_id)
-    if len(planner_results) != 1 or len(reviewer_results) != 1 or len(handoff_results) != 1:
+    if len(planner_results) != 1 or len(reviewer_results) != 1:
         return False
 
     planner_result_index, planner_result = planner_results[0]
     reviewer_result_index, reviewer_result = reviewer_results[0]
-    handoff_result_index, handoff_result = handoff_results[0]
+    handoff_attempts = _handoff_attempts(current, handoff_calls)
+    if handoff_attempts is None:
+        return False
     reviewed_draft = reviewer_call["args"].get("draft_markdown")
     planned_brief = _validated_brief(planner_call["args"].get("task_brief_json"))
     reviewed_brief = _validated_brief(reviewer_call["args"].get("task_brief_json"))
@@ -183,15 +186,45 @@ def _has_causal_role_handoff(messages: Sequence[BaseMessage], brief: TaskBrief) 
         < planner_result_index
         < reviewer_index
         < reviewer_result_index
-        < handoff_index
-        < handoff_result_index
+        < handoff_attempts[0][0]
+        and _attempts_are_sequential(handoff_attempts)
+        and all(_validated_handoff(call["args"]) is None for _, call, _, _ in handoff_attempts[:-1])
+        and _validated_handoff(handoff_attempts[-1][1]["args"]) == handoff
         and reviewed_draft == planner_result.text
         and planned_brief == brief
         and reviewed_brief == brief
         and planner_result.status == "success"
         and reviewer_result.status == "success"
-        and handoff_result.status == "success"
+        and handoff_attempts[-1][3].status == "success"
     )
+
+
+def _handoff_attempts(
+    messages: Sequence[BaseMessage],
+    calls: list[tuple[int, ToolCall]],
+) -> list[tuple[int, ToolCall, int, ToolMessage]] | None:
+    attempts: list[tuple[int, ToolCall, int, ToolMessage]] = []
+    for call_index, call in calls:
+        call_id = call.get("id")
+        if call_id is None:
+            return None
+        results = _tool_results(messages, HANDOFF_TOOL, call_id)
+        if len(results) != 1:
+            return None
+        result_index, result = results[0]
+        attempts.append((call_index, call, result_index, result))
+    return attempts
+
+
+def _attempts_are_sequential(
+    attempts: list[tuple[int, ToolCall, int, ToolMessage]],
+) -> bool:
+    previous_result_index = -1
+    for call_index, _, result_index, _ in attempts:
+        if not previous_result_index < call_index < result_index:
+            return False
+        previous_result_index = result_index
+    return True
 
 
 def _validated_brief(value: object) -> TaskBrief | None:
@@ -199,6 +232,13 @@ def _validated_brief(value: object) -> TaskBrief | None:
         return None
     try:
         return TaskBrief.model_validate_json(value)
+    except ValueError:
+        return None
+
+
+def _validated_handoff(value: object) -> ImplementationHandoff | None:
+    try:
+        return ImplementationHandoff.model_validate(value)
     except ValueError:
         return None
 

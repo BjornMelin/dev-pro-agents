@@ -1,6 +1,8 @@
 """End-to-end tests for the real LangChain and LangGraph workflow."""
 
+import sqlite3
 from collections.abc import Callable, Sequence
+from contextlib import closing
 from typing import Any, override
 
 import pytest
@@ -10,11 +12,13 @@ from langchain_core.messages import AIMessage, BaseMessage, ToolCall, ToolMessag
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import Field
 
 from dev_pro_agents.models import TaskBrief
 from dev_pro_agents.workflow import (
+    HANDOFF_CHECKPOINT_TYPE,
     HANDOFF_TOOL,
     PLANNER_TOOL,
     REVIEWER_TOOL,
@@ -30,13 +34,14 @@ class RoleAwareFakeChatModel(BaseChatModel):
     early_handoff: bool = False
     handoff_title: str = "Health endpoint"
     invalid_planner_brief: bool = False
+    invalid_handoff_once: bool = False
     parallel_calls: bool = False
     substituted_brief: bool = False
     bound_tool_names: list[tuple[str, ...]] = Field(default_factory=list)
     bound_tool_choices: list[str | None] = Field(default_factory=list)
 
     @override
-    def _generate(
+    def _generate(  # noqa: PLR0911
         self,
         messages: list[BaseMessage],
         stop: list[str] | None = None,
@@ -95,6 +100,14 @@ class RoleAwareFakeChatModel(BaseChatModel):
                 if self.early_handoff
                 else _tool_result(reviewer_call)
             )
+        if self.invalid_handoff_once and HANDOFF_TOOL not in called_tools:
+            return _tool_result(
+                ToolCall(
+                    name=HANDOFF_TOOL,
+                    args={"task_title": self.handoff_title},
+                    id="invalid-handoff-call",
+                )
+            )
         return _tool_result(_handoff_call(self.handoff_title))
 
     @property
@@ -126,7 +139,11 @@ def test_fake_model_runs_role_handoffs_and_persists_checkpoint() -> None:
     )
     config: RunnableConfig = {"configurable": {"thread_id": "fake-e2e"}}
 
-    with SqliteSaver.from_conn_string(":memory:") as checkpointer:
+    with closing(sqlite3.connect(":memory:", check_same_thread=False)) as connection:
+        checkpointer = SqliteSaver(
+            connection,
+            serde=JsonPlusSerializer(allowed_msgpack_modules=[HANDOFF_CHECKPOINT_TYPE]),
+        )
         model = RoleAwareFakeChatModel()
         workflow = build_workflow(model, checkpointer=checkpointer)
         handoff = run_handoff(workflow, brief, thread_id="fake-e2e")
@@ -139,6 +156,19 @@ def test_fake_model_runs_role_handoffs_and_persists_checkpoint() -> None:
         assert model.bound_tool_names
         assert set(model.bound_tool_names) == {(PLANNER_TOOL, REVIEWER_TOOL, HANDOFF_TOOL)}
         assert set(model.bound_tool_choices) == {"any"}
+
+
+def test_invalid_structured_handoff_is_retried() -> None:
+    brief = TaskBrief(
+        title="Health endpoint",
+        objective="Expose readiness.",
+        acceptance_criteria=("GET /health returns 200.",),
+    )
+    workflow = build_workflow(RoleAwareFakeChatModel(invalid_handoff_once=True))
+
+    handoff = run_handoff(workflow, brief, thread_id="structured-retry")
+
+    assert handoff.task_title == brief.title
 
 
 def test_parallel_role_calls_are_rejected() -> None:
