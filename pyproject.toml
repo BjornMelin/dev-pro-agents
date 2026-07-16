@@ -1,144 +1,71 @@
 [build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.11.29,<0.12"]
+build-backend = "uv_build"
 
 [project]
 name = "dev-pro-agents"
 version = "0.1.0"
-description = "Professional multi-agent orchestration system with LangGraph supervisor, advanced task management, and library-first architecture"
-authors = [{ name = "Bjorn Melin" }]
+description = "A read-only LangGraph workflow that turns typed task briefs into implementation handoffs."
 readme = "README.md"
-license-files = ["LICENSE"]
 requires-python = ">=3.12"
-dependencies = [
-    # Core async and HTTP libraries
-    "aiosqlite>=0.21.0",
-    "httpx>=0.28.1",
-
-    # LangChain ecosystem - latest versions
-    "langchain-core>=0.3.72",
-    "langchain-groq>=0.3.6",
-    "langchain-openai>=0.3.28",
-    "langgraph>=0.6.2",
-    "langgraph-checkpoint-sqlite>=2.0.11",
-    "langgraph-supervisor>=0.0.29",
-
-    # AI/LLM providers
-    "groq>=0.30.0",
-    "openai>=1.98.0",
-
-    # Data processing and validation
-    "pandas>=2.3.1",
-    "pydantic>=2.11.7",
-    "pydantic-settings>=2.10.1",
-    "sqlmodel>=0.0.24",
-
-    # CLI and UI
-    "rich>=14.1.0",
-    "typer>=0.16.0",
-
-    # Configuration and environment
-    "python-dotenv>=1.1.1",
-    "pyyaml>=6.0.1",
-
-    # Database and persistence
-    # sqlite3 is built-in to Python
+authors = [{ name = "Bjorn Melin" }]
+license = "MIT"
+license-files = ["LICENSE"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Typing :: Typed",
 ]
-
-[dependency-groups]
-dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0", "ruff>=0.10.0"]
+dependencies = [
+  "langchain>=1.3.14,<2",
+  "langchain-core>=1.4.9,<2",
+  "langchain-openai>=1.3.5,<2",
+  "langgraph>=1.2.9,<2",
+  "langgraph-checkpoint>=4.1.1,<5",
+  "langgraph-checkpoint-sqlite>=3.1,<4",
+  "pydantic>=2.13.4,<3",
+  "typer>=0.27,<1",
+]
 
 [project.urls]
+Homepage = "https://github.com/BjornMelin/dev-pro-agents"
 Repository = "https://github.com/BjornMelin/dev-pro-agents"
-Documentation = "https://github.com/BjornMelin/dev-pro-agents/docs"
+Issues = "https://github.com/BjornMelin/dev-pro-agents/issues"
 
 [project.scripts]
-dev-pro-agents = "src.cli:main"
-supervisor = "src.supervisor:main"
-task-manager = "src.task_manager:main"
+dev-pro-agents = "dev_pro_agents.cli:main"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+[dependency-groups]
+dev = [
+  "mypy>=1.18.2,<2",
+  "pytest>=9.1.1,<10",
+  "ruff>=0.15.21,<0.16",
+]
 
 [tool.uv]
+required-version = ">=0.11.28,<0.12"
 
 [tool.ruff]
-line-length = 88
 target-version = "py312"
+line-length = 100
 
 [tool.ruff.lint]
-select = [
-    "E",
-    "F",
-    "I",
-    "UP",
-    "N",
-    "B",
-    "S",
-    "C4",
-    "SIM",
-    "TC",
-    "ARG",
-    "PTH",
-    "RUF",
-    "D",
-    "T20",
-]
-ignore = [
-    "S101",
-    "S603",
-    "S607",
-    "S605",
-    "N999",
-    "D203",
-    "D213",
-    "D107",
-    "D104",
-    "D100",
-    "ARG002",
-    "T201",
-    "PLR0913",
-    "PLR0912",
-    "PLR2004",
-    "PLR0915",
-]
+select = ["ALL"]
+ignore = ["COM812", "D203", "D213"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101", "ARG001", "PLR2004", "D103"]
-"tests/**/test_*.py" = ["S101", "PLR2004", "D103"]
-"src/cli.py" = ["T201"]
-"src/supervisor.py" = ["PLR0915"]
-"**/__init__.py" = ["D104"]
-"src/**/__init__.py" = ["D104"]
+"tests/**" = ["D", "S101"]
 
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
-minversion = "6.0"
-addopts = "-ra -q --strict-markers"
+addopts = ["--strict-config", "--strict-markers", "-ra"]
 testpaths = ["tests"]
-python_files = ["test_*.py", "*_test.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-asyncio_mode = "auto"
-markers = [
-    "integration: marks tests that require external services (API keys, network)",
-]
-
-[tool.coverage.run]
-source = ["src"]
-omit = ["tests/*", "*/migrations/*", "*/venv/*", "*/.venv/*"]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "if self.debug:",
-    "if settings.DEBUG",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if 0:",
-    "if __name__ == .__main__.:",
-    "class .*\\bProtocol\\):",
-    "@(abc\\.)?abstractmethod",
-]

@@ -1,1 +1,1 @@
-"""Test suite for dev-pro-agents orchestration system."""
+"""Test suite for dev-pro-agents."""
